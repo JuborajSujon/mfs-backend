@@ -73,7 +73,7 @@ async function run() {
       next();
     };
 
-    app.put("/auth/register", async (req, res) => {
+    app.put("/register", async (req, res) => {
       const user = req.body;
       const filter = { mobileNumber: user?.mobileNumber };
 
@@ -111,6 +111,53 @@ async function run() {
       const result = await userCollection.updateOne(filter, updateDoc, options);
 
       res.send(result);
+    });
+
+    app.post("/login", async (req, res) => {
+      const user = req.body;
+
+      //validation
+      if (!user) {
+        return res.status(400).json({ message: "Input is required" });
+      }
+
+      const isEmail = () => {
+        const emailPattern = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
+        return emailPattern.test(user?.phoneOrEmail);
+      };
+
+      const isPhoneNumber = () => {
+        const phonePattern = /^[0-9]{11}$/;
+        return phonePattern.test(user?.phoneOrEmail);
+      };
+
+      let query;
+      if (isEmail()) {
+        query = { email: user?.phoneOrEmail };
+      } else if (isPhoneNumber()) {
+        query = { mobileNumber: user?.phoneOrEmail };
+      } else {
+        return res.status(400).json({ message: "Input is invalid" });
+      }
+
+      const result = await userCollection.findOne(query);
+
+      if (!result) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const isPasswordValid = await bcrypt.compare(
+        String(user?.pin),
+        result?.pin
+      );
+
+      if (!isPasswordValid) {
+        return res.status(400).json({ message: "Invalid credentials" });
+      }
+
+      delete result?.pin;
+
+      res.status(200).send(result);
     });
 
     console.log("You successfully connected to MongoDB!");
