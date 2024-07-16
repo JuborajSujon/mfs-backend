@@ -1,7 +1,7 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 
@@ -135,10 +135,11 @@ async function run() {
       if (isEmail()) {
         query = { email: user?.phoneOrEmail };
       } else if (isPhoneNumber()) {
-        query = { mobileNumber: user?.phoneOrEmail };
+        query = { mobileNumber: Number(user?.phoneOrEmail) };
       } else {
         return res.status(400).json({ message: "Input is invalid" });
       }
+      console.log(query);
 
       const result = await userCollection.findOne(query);
 
@@ -159,6 +160,45 @@ async function run() {
 
       res.status(200).send(result);
     });
+
+    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
+      const size = parseInt(req.query.size);
+      const page = parseInt(req.query.page) - 1;
+      const search = req.query.search;
+      let query = {
+        $or: [
+          { name: { $regex: search, $options: "i" } },
+          { status: { $regex: search, $options: "i" } },
+        ],
+      };
+
+      const result = await userCollection
+        .find(query)
+        .skip(page * size)
+        .limit(size)
+        .toArray();
+      const count = await userCollection.countDocuments(query);
+      res.send({ result, count });
+    });
+
+    app.patch(
+      "/users/admin/:email",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const email = req.params.email;
+        const user = req.body;
+
+        const filter = { email: email };
+        const updateDoc = {
+          $set: {
+            status: user?.status,
+          },
+        };
+        const result = await userCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      }
+    );
 
     console.log("You successfully connected to MongoDB!");
   } finally {
