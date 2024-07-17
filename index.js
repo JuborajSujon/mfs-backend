@@ -278,6 +278,11 @@ async function run() {
           return res.status(404).json({ message: "Recipient not found" });
         }
 
+        // check recipient role is user or not
+        if (recipient?.role !== "user") {
+          return res.status(400).json({ message: "Recipient is not a user" });
+        }
+
         // if user pin is not matched
 
         const isPasswordValid = await bcrypt.compare(
@@ -295,8 +300,6 @@ async function run() {
         if (userInfo?.amount > 100) {
           fee = 5;
         }
-
-        console.log(userInfo?.amount + fee);
 
         if (user.balance < userInfo?.amount + fee) {
           return res.status(400).json({ message: "Insufficient balance" });
@@ -336,7 +339,6 @@ async function run() {
             const transactionResult = await transactionCollection.insertOne(
               transactionHistory
             );
-            console.log("history", transactionResult);
 
             return res
               .status(200)
@@ -351,6 +353,8 @@ async function run() {
         res.send({ message: error.message });
       }
     });
+
+    //
 
     console.log("You successfully connected to MongoDB!");
   } finally {
