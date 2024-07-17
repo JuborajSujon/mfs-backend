@@ -466,12 +466,10 @@ async function run() {
               transactionHistory
             );
 
-            return res
-              .status(200)
-              .json({
-                acknowledged: true,
-                message: "Cash out request successfully",
-              });
+            return res.status(200).json({
+              acknowledged: true,
+              message: "Cash out request successfully",
+            });
           }
         } else {
           return res.status(500).json({ message: "Something went wrong" });
@@ -558,6 +556,26 @@ async function run() {
         res.send({ message: error.message });
       }
     });
+
+    // get user transaction history
+    app.get(
+      "/user/transactions/:email",
+      verifyToken,
+      verifyUser,
+      async (req, res) => {
+        const email = req.params.email;
+        try {
+          const result = await transactionCollection
+            .find({ sender: email })
+            .sort({ date: -1 })
+            .limit(10)
+            .toArray();
+          res.send(result);
+        } catch (error) {
+          res.send({ message: error.message });
+        }
+      }
+    );
 
     console.log("You successfully connected to MongoDB!");
   } finally {
