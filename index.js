@@ -34,6 +34,7 @@ async function run() {
   try {
     const db = client.db(process.env.DB_NAME);
     const userCollection = db.collection("users");
+    const transactionCollection = db.collection("transactions");
     console.log("You successfully connected to MongoDB!");
 
     // jwt related api
@@ -96,7 +97,7 @@ async function run() {
       }
       next();
     };
-
+    // User register api
     app.put("/register", async (req, res) => {
       const user = req.body;
       const filter = { mobileNumber: user?.mobileNumber };
@@ -136,7 +137,7 @@ async function run() {
 
       res.send(result);
     });
-
+    // User login api
     app.post("/login", async (req, res) => {
       const user = req.body;
 
@@ -183,7 +184,7 @@ async function run() {
 
       res.status(200).send(result);
     });
-
+    // get all users api for admin
     app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
       const size = parseInt(req.query.size);
       const page = parseInt(req.query.page) - 1;
@@ -203,7 +204,7 @@ async function run() {
       const count = await userCollection.countDocuments(query);
       res.send({ result, count });
     });
-
+    // get single user role and bonus amount update api for admin
     app.patch(
       "/users/admin/:email",
       verifyToken,
@@ -257,6 +258,99 @@ async function run() {
         res.send(result);
       }
     );
+
+    // Send money api for user and agent
+    app.post("/user/send-money", verifyToken, verifyUser, async (req, res) => {
+      const userInfo = req.body;
+      const userFilter = { email: userInfo?.userEmail };
+      const recipientFilter = { mobileNumber: userInfo?.recipient };
+
+      try {
+        // check is user exisit or not
+        const user = await userCollection.findOne(userFilter);
+        if (!user) {
+          return res.status(404).json({ message: "User not found" });
+        }
+
+        // check is recipient exisit or not
+        const recipient = await userCollection.findOne(recipientFilter);
+        if (!recipient) {
+          return res.status(404).json({ message: "Recipient not found" });
+        }
+
+        // if user pin is not matched
+
+        const isPasswordValid = await bcrypt.compare(
+          String(userInfo?.pin),
+          user?.pin
+        );
+
+        if (!isPasswordValid) {
+          return res.status(400).json({ message: "Invalid credentials" });
+        }
+
+        // if amount is more than 100 and insufficient balance
+
+        let fee = 0;
+        if (userInfo?.amount > 100) {
+          fee = 5;
+        }
+
+        console.log(userInfo?.amount + fee);
+
+        if (user.balance < userInfo?.amount + fee) {
+          return res.status(400).json({ message: "Insufficient balance" });
+        }
+
+        // send money to recipient and update balance
+        const updateDoc = {
+          $set: {
+            balance: user.balance - userInfo?.amount - fee,
+          },
+        };
+
+        const result = await userCollection.updateOne(userFilter, updateDoc);
+        if (result.modifiedCount > 0) {
+          const recipientUpdateDoc = {
+            $set: {
+              balance: recipient.balance + userInfo?.amount,
+            },
+          };
+          const recipientResult = await userCollection.updateOne(
+            recipientFilter,
+            recipientUpdateDoc
+          );
+          if (recipientResult.modifiedCount > 0) {
+            // create transaction history
+            const transactionHistory = {
+              sender: user?.email,
+              senderName: user?.name,
+              senderMobileNumber: user?.mobileNumber,
+              recipient: recipient?.mobileNumber,
+              recipientName: recipient?.name,
+              amount: userInfo?.amount,
+              fee,
+              date: Date.now(),
+            };
+
+            const transactionResult = await transactionCollection.insertOne(
+              transactionHistory
+            );
+            console.log("history", transactionResult);
+
+            return res
+              .status(200)
+              .json({ acknowledged: true, message: "Money sent successfully" });
+          }
+        } else {
+          return res.status(500).json({ message: "Something went wrong" });
+        }
+
+        res.send({ message: "Money sent successfully" });
+      } catch (error) {
+        res.send({ message: error.message });
+      }
+    });
 
     console.log("You successfully connected to MongoDB!");
   } finally {
