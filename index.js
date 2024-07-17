@@ -35,6 +35,7 @@ async function run() {
     const db = client.db(process.env.DB_NAME);
     const userCollection = db.collection("users");
     const transactionCollection = db.collection("transactions");
+    const cashManageCollection = db.collection("cashmanage");
     console.log("You successfully connected to MongoDB!");
 
     // jwt related api
@@ -370,7 +371,7 @@ async function run() {
       }
     });
 
-    // Send money api for user and agent
+    // Cash out api for user and agent
     app.post("/user/cash-out", verifyToken, verifyUser, async (req, res) => {
       const userInfo = req.body;
       const userFilter = { email: userInfo?.userEmail };
@@ -413,7 +414,7 @@ async function run() {
           return res.status(400).json({ message: "Insufficient balance" });
         }
 
-        // send money to recipient and update balance
+        // cash out to recipient and update balance
         const updateDoc = {
           $set: {
             balance: user.balance - userInfo?.amount - fee,
@@ -458,21 +459,101 @@ async function run() {
               date: Date.now(),
               transactionMethod: "Cash Out",
               transactionId,
+              requestStatus: "pending",
             };
 
-            const transactionResult = await transactionCollection.insertOne(
+            const transactionResult = await cashManageCollection.insertOne(
               transactionHistory
             );
 
             return res
               .status(200)
-              .json({ acknowledged: true, message: "Cash out successfully" });
+              .json({
+                acknowledged: true,
+                message: "Cash out request successfully",
+              });
           }
         } else {
           return res.status(500).json({ message: "Something went wrong" });
         }
 
-        res.send({ message: "Cash out successfully" });
+        res.send({ message: "Cash out request successfully" });
+      } catch (error) {
+        res.send({ message: error.message });
+      }
+    });
+
+    // Cash In api for user and agent
+    app.post("/user/cash-in", verifyToken, verifyUser, async (req, res) => {
+      const userInfo = req.body;
+      const userFilter = { email: userInfo?.userEmail };
+      const recipientFilter = { mobileNumber: userInfo?.recipient };
+
+      try {
+        // check is user exisit or not
+        const user = await userCollection.findOne(userFilter);
+        if (!user) {
+          return res.status(404).json({ message: "User not found" });
+        }
+
+        // check is recipient exisit or not
+        const recipient = await userCollection.findOne(recipientFilter);
+        if (!recipient) {
+          return res.status(404).json({ message: "Recipient not found" });
+        }
+
+        // check recipient role is agent or not
+        if (recipient?.role !== "agent") {
+          return res.status(400).json({ message: "Recipient is not a agent" });
+        }
+
+        // if user pin is not matched
+
+        const isPasswordValid = await bcrypt.compare(
+          String(userInfo?.pin),
+          user?.pin
+        );
+
+        if (!isPasswordValid) {
+          return res.status(400).json({ message: "Invalid credentials" });
+        }
+
+        // generate a random transaction id
+        function generateRandomId(length) {
+          const characters =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+          let result = "";
+          for (let i = 0; i < length; i++) {
+            result += characters.charAt(
+              Math.floor(Math.random() * characters.length)
+            );
+          }
+          return result;
+        }
+        const transactionId = generateRandomId(10);
+
+        // create cash in transaction history
+        const transactionHistory = {
+          requester: user?.email,
+          requesterName: user?.name,
+          requesterMobileNumber: user?.mobileNumber,
+          recipient: recipient?.mobileNumber,
+          recipientName: recipient?.name,
+          amount: userInfo?.amount,
+          date: Date.now(),
+          transactionMethod: "Cash In",
+          transactionId,
+          requestStatus: "pending",
+        };
+
+        const cashInResult = await cashManageCollection.insertOne(
+          transactionHistory
+        );
+
+        res.send({
+          message: "Cash in request successfully",
+          acknowledged: true,
+        });
       } catch (error) {
         res.send({ message: error.message });
       }
