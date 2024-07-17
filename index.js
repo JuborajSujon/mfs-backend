@@ -577,6 +577,27 @@ async function run() {
       }
     );
 
+    // cash manage api for user by agent
+    app.get("/cash-manage", verifyToken, verifyAgent, async (req, res) => {
+      const size = parseInt(req.query.size);
+      const page = parseInt(req.query.page) - 1;
+      const search = req.query.search;
+      let query = {
+        $or: [
+          { name: { $regex: search, $options: "i" } },
+          { requestStatus: { $regex: search, $options: "i" } },
+        ],
+      };
+
+      const result = await cashManageCollection
+        .find(query)
+        .skip(page * size)
+        .limit(size)
+        .toArray();
+      const count = await cashManageCollection.countDocuments(query);
+      res.send({ result, count });
+    });
+
     console.log("You successfully connected to MongoDB!");
   } finally {
   }
