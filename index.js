@@ -139,7 +139,6 @@ async function run() {
       } else {
         return res.status(400).json({ message: "Input is invalid" });
       }
-      console.log(query);
 
       const result = await userCollection.findOne(query);
 
@@ -188,13 +187,48 @@ async function run() {
       async (req, res) => {
         const email = req.params.email;
         const user = req.body;
-
         const filter = { email: email };
-        const updateDoc = {
-          $set: {
-            status: user?.status,
-          },
-        };
+
+        const userInfo = await userCollection.findOne(filter);
+
+        let bonusAmount;
+
+        if (userInfo?.role === "user") {
+          bonusAmount = 40;
+        } else if (userInfo?.role === "agent") {
+          bonusAmount = 10000;
+        }
+
+        const newBalance = userInfo?.balance + bonusAmount;
+
+        const isBonusExits = await userCollection.findOne(filter, {
+          projection: { getBonusAmount: 1, isGetBonusAmount: 1 },
+        });
+
+        let updateDoc;
+
+        if (isBonusExits.isGetBonusAmount) {
+          updateDoc = {
+            $set: {
+              status: user?.status,
+            },
+          };
+        } else if (user?.status === "block") {
+          updateDoc = {
+            $set: {
+              status: user?.status,
+            },
+          };
+        } else {
+          updateDoc = {
+            $set: {
+              status: user?.status,
+              getBonusAmount: bonusAmount,
+              isGetBonusAmount: true,
+              balance: newBalance,
+            },
+          };
+        }
         const result = await userCollection.updateOne(filter, updateDoc);
         res.send(result);
       }
