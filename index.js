@@ -414,68 +414,43 @@ async function run() {
           return res.status(400).json({ message: "Insufficient balance" });
         }
 
-        // cash out to recipient and update balance
-        const updateDoc = {
-          $set: {
-            balance: user.balance - userInfo?.amount - fee,
-          },
+        // generate a random transaction id
+        function generateRandomId(length) {
+          const characters =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+          let result = "";
+          for (let i = 0; i < length; i++) {
+            result += characters.charAt(
+              Math.floor(Math.random() * characters.length)
+            );
+          }
+          return result;
+        }
+        const transactionId = generateRandomId(10);
+
+        // create transaction history
+        const transactionHistory = {
+          sender: user?.email,
+          senderName: user?.name,
+          senderMobileNumber: user?.mobileNumber,
+          recipient: recipient?.mobileNumber,
+          recipientName: recipient?.name,
+          amount: userInfo?.amount,
+          fee,
+          date: Date.now(),
+          transactionMethod: "Cash Out",
+          transactionId,
+          requestStatus: "pending",
         };
 
-        const result = await userCollection.updateOne(userFilter, updateDoc);
-        if (result.modifiedCount > 0) {
-          const recipientUpdateDoc = {
-            $set: {
-              balance: recipient.balance + userInfo?.amount + fee,
-            },
-          };
-          const recipientResult = await userCollection.updateOne(
-            recipientFilter,
-            recipientUpdateDoc
-          );
-          if (recipientResult.modifiedCount > 0) {
-            // generate a random transaction id
-            function generateRandomId(length) {
-              const characters =
-                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-              let result = "";
-              for (let i = 0; i < length; i++) {
-                result += characters.charAt(
-                  Math.floor(Math.random() * characters.length)
-                );
-              }
-              return result;
-            }
-            const transactionId = generateRandomId(10);
+        const transactionResult = await cashManageCollection.insertOne(
+          transactionHistory
+        );
 
-            // create transaction history
-            const transactionHistory = {
-              sender: user?.email,
-              senderName: user?.name,
-              senderMobileNumber: user?.mobileNumber,
-              recipient: recipient?.mobileNumber,
-              recipientName: recipient?.name,
-              amount: userInfo?.amount,
-              fee,
-              date: Date.now(),
-              transactionMethod: "Cash Out",
-              transactionId,
-              requestStatus: "pending",
-            };
-
-            const transactionResult = await cashManageCollection.insertOne(
-              transactionHistory
-            );
-
-            return res.status(200).json({
-              acknowledged: true,
-              message: "Cash out request successfully",
-            });
-          }
-        } else {
-          return res.status(500).json({ message: "Something went wrong" });
-        }
-
-        res.send({ message: "Cash out request successfully" });
+        res.send({
+          message: "Cash out request successfully",
+          acknowledged: true,
+        });
       } catch (error) {
         res.send({ message: error.message });
       }
@@ -532,9 +507,9 @@ async function run() {
 
         // create cash in transaction history
         const transactionHistory = {
-          requester: user?.email,
-          requesterName: user?.name,
-          requesterMobileNumber: user?.mobileNumber,
+          sender: user?.email,
+          senderName: user?.name,
+          senderMobileNumber: user?.mobileNumber,
           recipient: recipient?.mobileNumber,
           recipientName: recipient?.name,
           amount: userInfo?.amount,
@@ -597,6 +572,134 @@ async function run() {
       const count = await cashManageCollection.countDocuments(query);
       res.send({ result, count });
     });
+
+    // Cash Manage approval api for user by agent
+    app.patch(
+      "/agent/approve/:id",
+      verifyToken,
+      verifyAgent,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const status = req.body.status;
+        try {
+          const result = await cashManageCollection.findOne(query);
+
+          if (!result) {
+            return res.status(404).json({ message: "Transaction not found" });
+          }
+
+          if (result.requestStatus === "success") {
+            return res.status(400).json({
+              message: "Transaction already done",
+            });
+          }
+
+          const sender = { email: result?.sender };
+          const agent = { mobileNumber: result?.recipient };
+
+          const user = await userCollection.findOne(sender);
+          const recipient = await userCollection.findOne(agent);
+
+          if (result.transactionMethod === "Cash Out") {
+            const updateDoc = {
+              $set: {
+                balance: user.balance - result?.amount - result?.fee,
+              },
+            };
+
+            const updatedResult = await userCollection.updateOne(
+              sender,
+              updateDoc
+            );
+            if (updatedResult.modifiedCount > 0) {
+              const recipientUpdateDoc = {
+                $set: {
+                  balance: recipient.balance + result?.amount + result?.fee,
+                },
+              };
+              const recipientResult = await userCollection.updateOne(
+                agent,
+                recipientUpdateDoc
+              );
+              if (recipientResult.modifiedCount > 0) {
+                // update request status
+                const updateDoc = {
+                  $set: {
+                    requestStatus: status,
+                  },
+                };
+                const updatedResult = await cashManageCollection.updateOne(
+                  query,
+                  updateDoc
+                );
+                if (updatedResult.modifiedCount > 0) {
+                  return res.status(200).json({
+                    acknowledged: true,
+                    message: "Cash out request approved successfully",
+                  });
+                }
+                return res.status(200).json({
+                  acknowledged: true,
+                  message: "Cash out request approved successfully",
+                });
+              }
+            } else {
+              return res.status(500).json({ message: "Something went wrong" });
+            }
+          }
+
+          if (result.transactionMethod === "Cash In") {
+            const updateDoc = {
+              $set: {
+                balance: user.balance + result?.amount,
+              },
+            };
+            const updatedResult = await userCollection.updateOne(
+              sender,
+              updateDoc
+            );
+            if (updatedResult.modifiedCount > 0) {
+              const recipientUpdateDoc = {
+                $set: {
+                  balance: recipient.balance - result?.amount,
+                },
+              };
+              const recipientResult = await userCollection.updateOne(
+                agent,
+                recipientUpdateDoc
+              );
+              if (recipientResult.modifiedCount > 0) {
+                // update request status
+                const updateDoc = {
+                  $set: {
+                    requestStatus: status,
+                  },
+                };
+                const updatedResult = await cashManageCollection.updateOne(
+                  query,
+                  updateDoc
+                );
+                if (updatedResult.modifiedCount > 0) {
+                  return res.status(200).json({
+                    acknowledged: true,
+                    message: "Cash in request approved successfully",
+                  });
+                }
+                return res.status(200).json({
+                  acknowledged: true,
+                  message: "Cash in request approved successfully",
+                });
+              }
+            } else {
+              return res.status(500).json({ message: "Something went wrong" });
+            }
+          }
+        } catch (error) {
+          res.send({ message: error.message });
+        }
+      }
+    );
 
     console.log("You successfully connected to MongoDB!");
   } finally {
