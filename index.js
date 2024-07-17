@@ -73,6 +73,30 @@ async function run() {
       next();
     };
 
+    // use verify user after verifyToken
+    const verifyUser = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      const isUser = user?.role === "user";
+      if (!isUser) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
+    // use verify agent after verifyToken
+    const verifyAgent = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      const isAgent = user?.role === "agent";
+      if (!isAgent) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
     app.put("/register", async (req, res) => {
       const user = req.body;
       const filter = { mobileNumber: user?.mobileNumber };
