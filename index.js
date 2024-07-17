@@ -324,6 +324,20 @@ async function run() {
             recipientUpdateDoc
           );
           if (recipientResult.modifiedCount > 0) {
+            // generate a random transaction id
+            function generateRandomId(length) {
+              const characters =
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+              let result = "";
+              for (let i = 0; i < length; i++) {
+                result += characters.charAt(
+                  Math.floor(Math.random() * characters.length)
+                );
+              }
+              return result;
+            }
+            const transactionId = generateRandomId(10);
+
             // create transaction history
             const transactionHistory = {
               sender: user?.email,
@@ -334,6 +348,8 @@ async function run() {
               amount: userInfo?.amount,
               fee,
               date: Date.now(),
+              transactionMethod: "Send Money",
+              transactionId,
             };
 
             const transactionResult = await transactionCollection.insertOne(
@@ -354,7 +370,113 @@ async function run() {
       }
     });
 
-    //
+    // Send money api for user and agent
+    app.post("/user/cash-out", verifyToken, verifyUser, async (req, res) => {
+      const userInfo = req.body;
+      const userFilter = { email: userInfo?.userEmail };
+      const recipientFilter = { mobileNumber: userInfo?.recipient };
+
+      try {
+        // check is user exisit or not
+        const user = await userCollection.findOne(userFilter);
+        if (!user) {
+          return res.status(404).json({ message: "User not found" });
+        }
+
+        // check is recipient exisit or not
+        const recipient = await userCollection.findOne(recipientFilter);
+        if (!recipient) {
+          return res.status(404).json({ message: "Recipient not found" });
+        }
+
+        // check recipient role is agent or not
+        if (recipient?.role !== "agent") {
+          return res.status(400).json({ message: "Recipient is not a agent" });
+        }
+
+        // if user pin is not matched
+
+        const isPasswordValid = await bcrypt.compare(
+          String(userInfo?.pin),
+          user?.pin
+        );
+
+        if (!isPasswordValid) {
+          return res.status(400).json({ message: "Invalid credentials" });
+        }
+
+        // 1.5% of the transaction amount
+
+        let fee = userInfo?.amount * 0.015;
+
+        if (user.balance < userInfo?.amount + fee) {
+          return res.status(400).json({ message: "Insufficient balance" });
+        }
+
+        // send money to recipient and update balance
+        const updateDoc = {
+          $set: {
+            balance: user.balance - userInfo?.amount - fee,
+          },
+        };
+
+        const result = await userCollection.updateOne(userFilter, updateDoc);
+        if (result.modifiedCount > 0) {
+          const recipientUpdateDoc = {
+            $set: {
+              balance: recipient.balance + userInfo?.amount + fee,
+            },
+          };
+          const recipientResult = await userCollection.updateOne(
+            recipientFilter,
+            recipientUpdateDoc
+          );
+          if (recipientResult.modifiedCount > 0) {
+            // generate a random transaction id
+            function generateRandomId(length) {
+              const characters =
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+              let result = "";
+              for (let i = 0; i < length; i++) {
+                result += characters.charAt(
+                  Math.floor(Math.random() * characters.length)
+                );
+              }
+              return result;
+            }
+            const transactionId = generateRandomId(10);
+
+            // create transaction history
+            const transactionHistory = {
+              sender: user?.email,
+              senderName: user?.name,
+              senderMobileNumber: user?.mobileNumber,
+              recipient: recipient?.mobileNumber,
+              recipientName: recipient?.name,
+              amount: userInfo?.amount,
+              fee,
+              date: Date.now(),
+              transactionMethod: "Cash Out",
+              transactionId,
+            };
+
+            const transactionResult = await transactionCollection.insertOne(
+              transactionHistory
+            );
+
+            return res
+              .status(200)
+              .json({ acknowledged: true, message: "Cash out successfully" });
+          }
+        } else {
+          return res.status(500).json({ message: "Something went wrong" });
+        }
+
+        res.send({ message: "Cash out successfully" });
+      } catch (error) {
+        res.send({ message: error.message });
+      }
+    });
 
     console.log("You successfully connected to MongoDB!");
   } finally {
