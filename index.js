@@ -557,6 +557,7 @@ async function run() {
       const size = parseInt(req.query.size);
       const page = parseInt(req.query.page) - 1;
       const search = req.query.search;
+      const userMobileNumber = Number(req.query.mobileNumber);
       let query = {
         $or: [
           { name: { $regex: search, $options: "i" } },
@@ -564,8 +565,15 @@ async function run() {
         ],
       };
 
+      if (userMobileNumber) {
+        query = {
+          $and: [query, { recipient: userMobileNumber }],
+        };
+      }
+
       const result = await cashManageCollection
         .find(query)
+        .sort({ date: -1 })
         .skip(page * size)
         .limit(size)
         .toArray();
@@ -634,6 +642,23 @@ async function run() {
                   updateDoc
                 );
                 if (updatedResult.modifiedCount > 0) {
+                  // create transaction history
+                  const transactionHistory = {
+                    sender: user?.email,
+                    senderName: user?.name,
+                    senderMobileNumber: user?.mobileNumber,
+                    recipient: recipient?.mobileNumber,
+                    recipientName: recipient?.name,
+                    amount: result?.amount,
+                    fee: result?.fee,
+                    date: Date.now(),
+                    transactionMethod: "Cash Out",
+                    transactionId: result?.transactionId,
+                  };
+
+                  const transactionResult =
+                    await transactionCollection.insertOne(transactionHistory);
+
                   return res.status(200).json({
                     acknowledged: true,
                     message: "Cash out request approved successfully",
@@ -681,6 +706,23 @@ async function run() {
                   updateDoc
                 );
                 if (updatedResult.modifiedCount > 0) {
+                  // create transaction history
+                  const transactionHistory = {
+                    sender: user?.email,
+                    senderName: user?.name,
+                    senderMobileNumber: user?.mobileNumber,
+                    recipient: recipient?.mobileNumber,
+                    recipientName: recipient?.name,
+                    amount: result?.amount,
+                    fee: result?.fee || 0,
+                    date: Date.now(),
+                    transactionMethod: "Cash In",
+                    transactionId: result?.transactionId,
+                  };
+
+                  const transactionResult =
+                    await transactionCollection.insertOne(transactionHistory);
+
                   return res.status(200).json({
                     acknowledged: true,
                     message: "Cash in request approved successfully",
@@ -695,6 +737,27 @@ async function run() {
               return res.status(500).json({ message: "Something went wrong" });
             }
           }
+        } catch (error) {
+          res.send({ message: error.message });
+        }
+      }
+    );
+
+    // get agent transaction history
+    app.get(
+      "/agent/transactions/:mobileNumber",
+      verifyToken,
+      verifyAgent,
+      async (req, res) => {
+        const mobileNumber = Number(req.params.mobileNumber);
+        try {
+          const result = await transactionCollection
+            .find({ recipient: mobileNumber })
+            .sort({ date: -1 })
+            .limit(20)
+            .toArray();
+
+          res.send(result);
         } catch (error) {
           res.send({ message: error.message });
         }
