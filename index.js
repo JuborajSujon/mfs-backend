@@ -205,6 +205,14 @@ async function run() {
       const count = await userCollection.countDocuments(query);
       res.send({ result, count });
     });
+
+    // get single user api
+    app.get("/user/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = { email: email };
+      const result = await userCollection.findOne(query);
+      res.send(result);
+    });
     // get single user role and bonus amount update api for admin
     app.patch(
       "/users/admin/:email",
