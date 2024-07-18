@@ -764,6 +764,25 @@ async function run() {
       }
     );
 
+    // get admin transaction history
+    app.get(
+      "/admin/transactions",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const result = await transactionCollection
+            .find()
+            .sort({ date: -1 })
+            .toArray();
+
+          res.send(result);
+        } catch (error) {
+          res.send({ message: error.message });
+        }
+      }
+    );
+
     console.log("You successfully connected to MongoDB!");
   } finally {
   }
